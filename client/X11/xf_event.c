@@ -1275,8 +1275,11 @@ BOOL xf_event_process(freerdp* instance, const XEvent* event)
 
 	xfContext* xfc = (xfContext*)instance->context;
 	WINPR_ASSERT(xfc);
-	if (xf_reconnect_event(xfc, event))
-		return !freerdp_shall_disconnect_context(instance->context);
+	BOOL reconnectHandled = FALSE;
+	if (!xf_reconnect_event(instance, event, &reconnectHandled))
+		return FALSE;
+	if (reconnectHandled)
+		return TRUE;
 
 	rdpSettings* settings = xfc->common.context.settings;
 	WINPR_ASSERT(settings);

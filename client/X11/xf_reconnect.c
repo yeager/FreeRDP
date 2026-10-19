@@ -27,14 +27,19 @@ static void xf_reconnect_draw(xfContext* xfc)
 	if (!gc)
 		return;
 	XSetForeground(xfc->display, gc, BlackPixel(xfc->display, screen));
-	XFontStruct* font = XLoadQueryFont(xfc->display, "9x15");
+	XFontStruct* font = XLoadQueryFont(xfc->display, "10x20");
+	if (!font)
+		font = XLoadQueryFont(xfc->display, "fixed");
 	if (font)
 		XSetFont(xfc->display, gc, font->fid);
+	const int lineHeight = font ? font->ascent + font->descent : 16;
+	const int firstBaseline = 20 + (font ? font->ascent : 12);
 	XClearWindow(xfc->display, xfc->reconnectWindow);
-	XDrawString(xfc->display, xfc->reconnectWindow, gc, 16, 30, xfc->reconnectMessage,
+	XDrawString(xfc->display, xfc->reconnectWindow, gc, 16, firstBaseline, xfc->reconnectMessage,
 	            (int)strlen(xfc->reconnectMessage));
 	const char cancel[] = "Close this window to cancel.";
-	XDrawString(xfc->display, xfc->reconnectWindow, gc, 16, 60, cancel, sizeof(cancel) - 1);
+	XDrawString(xfc->display, xfc->reconnectWindow, gc, 16, firstBaseline + lineHeight + 20, cancel,
+	            sizeof(cancel) - 1);
 	if (font)
 		XFreeFont(xfc->display, font);
 	XFreeGC(xfc->display, gc);
@@ -55,12 +60,13 @@ SSIZE_T xf_retry_dialog(freerdp* instance, const char* what, size_t current, voi
 	{
 		const int screen = DefaultScreen(xfc->display);
 		xfc->reconnectWindow =
-		    XCreateSimpleWindow(xfc->display, DefaultRootWindow(xfc->display), 0, 0, 420, 90, 1,
+		    XCreateSimpleWindow(xfc->display, DefaultRootWindow(xfc->display), 0, 0, 560, 120, 1,
 		                        BlackPixel(xfc->display, screen), WhitePixel(xfc->display, screen));
 		XStoreName(xfc->display, xfc->reconnectWindow, "FreeRDP - Reconnecting");
 		XSelectInput(xfc->display, xfc->reconnectWindow, ExposureMask);
 		XSetWMProtocols(xfc->display, xfc->reconnectWindow, &xfc->WM_DELETE_WINDOW, 1);
 		XMapRaised(xfc->display, xfc->reconnectWindow);
+		XSync(xfc->display, FALSE);
 	}
 	const UINT32 max =
 	    freerdp_settings_get_uint32(instance->context->settings, FreeRDP_AutoReconnectMaxRetries);
@@ -75,12 +81,17 @@ SSIZE_T xf_retry_dialog(freerdp* instance, const char* what, size_t current, voi
 	return delay;
 }
 
-BOOL xf_reconnect_event(xfContext* xfc, const XEvent* event)
+BOOL xf_reconnect_event(freerdp* instance, const XEvent* event, BOOL* handled)
 {
-	WINPR_ASSERT(xfc);
+	WINPR_ASSERT(instance);
 	WINPR_ASSERT(event);
+	WINPR_ASSERT(handled);
+	xfContext* xfc = (xfContext*)instance->context;
+	WINPR_ASSERT(xfc);
+	*handled = FALSE;
 	if (!xfc->reconnectWindow || event->xany.window != xfc->reconnectWindow)
-		return FALSE;
+		return TRUE;
+	*handled = TRUE;
 	if (event->type == Expose)
 		xf_reconnect_draw(xfc);
 	else if (event->type == ClientMessage && event->xclient.format == 32 &&
@@ -89,7 +100,7 @@ BOOL xf_reconnect_event(xfContext* xfc, const XEvent* event)
 	{
 		(void)freerdp_abort_connect_context(&xfc->common.context);
 	}
-	return TRUE;
+	return !freerdp_shall_disconnect_context(instance->context);
 }
 
 void xf_reconnect_close(xfContext* xfc)
